@@ -2,7 +2,15 @@ import os
 
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+# override=True: por padrão, load_dotenv() nunca sobrescreve uma variável já
+# presente em os.environ — inclusive uma que ela mesma setou como vazia numa
+# execução anterior deste mesmo processo (ex.: GROQ_API_KEY vazia no .env
+# quando o Streamlit subiu, preenchida depois sem reiniciar o servidor).
+# Sem override=True, esse valor vazio fica travado pelo resto da vida do
+# processo, e nenhum rerun corrige sozinho. Como o .env deste projeto só
+# define GROQ_API_KEY (nada usado por variável de ambiente "real" do SO),
+# forçar o arquivo a sempre vencer é seguro aqui.
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"), override=True)
 
 import streamlit as st
 
