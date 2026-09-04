@@ -185,13 +185,16 @@ pagina_qualidade = st.Page(
 pagina_vendas = st.Page(
     "pages/Vendas_e_Distratos.py", title="Vendas e Distratos", icon=":material/edit_document:"
 )
+pagina_assistente = st.Page(
+    "pages/Assistente.py", title="Assistente", icon=":material/smart_toy:"
+)
 
 if "usuario" in st.session_state:
     with st.sidebar:
         if st.button("Sair", icon=":material/logout:", width="stretch"):
             del st.session_state["usuario"]
             st.rerun()
-    paginas = [pagina_dashboard, pagina_qualidade, pagina_vendas]
+    paginas = [pagina_dashboard, pagina_qualidade, pagina_vendas, pagina_assistente]
 else:
     paginas = [pagina_login_obj]
 
