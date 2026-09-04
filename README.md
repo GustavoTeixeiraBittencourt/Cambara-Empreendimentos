@@ -20,7 +20,7 @@ O objetivo deste projeto é, portanto, demonstrar não somente a capacidade de d
 ## Resumo executivo
 
 - **Problema:** a base da Cambará tem mais de 9 mil registros com inconsistências reais — grafias diferentes para o mesmo status, campos que se contradizem entre si, divergência entre resultado financeiro reportado e recalculado. Sem uma camada que trate isso, qualquer decisão tomada em cima desses números corre o risco de estar sub-contando ou super-contando a realidade.
-- **O que foi entregue:** uma aplicação que (1) transforma os dados brutos em 4 indicadores de negócio auditáveis, (2) impede operacionalmente a venda de uma unidade já vendida/reservada e controla o fluxo de distrato, e (3) responde perguntas livres sobre os dados reais sempre mostrando a consulta SQL usada — nenhuma resposta é dada sem se poder conferir de onde ela veio.
+- **O que foi entregue:** uma aplicação que (1) transforma os dados brutos em 4 indicadores de negócio auditáveis, (2) impede operacionalmente a venda de uma unidade já vendida/reservada e controla o fluxo de distrato, e (3) responde perguntas livres sobre os dados reais sempre com a consulta SQL usada disponível para conferência (log de auditoria) — nenhuma resposta é dada sem se poder conferir de onde ela veio.
 - **Principais achados nos dados** (números reais, extraídos do banco — fórmula e premissa completas na seção [Perguntas de negócio e principais achados](#perguntas-de-negócio-e-principais-achados)):
   - **Velocidade de vendas:** média geral de 62% das unidades ofertadas estão vendidas hoje. Três empreendimentos concentram o pior desempenho — **Essência Living (6,8%)**, **Atelier Tower (18,3%)** e **Cume Tower (24,7%)** — candidatos naturais a ação comercial prioritária.
   - **Estouro de custo:** **15 dos 22 empreendimentos (68%)** estão com custo realizado acima do orçado, somando **R$ 16 milhões** em estouro acumulado. Pior caso: **Panorama do Parque**, R$ 4,2 milhões (3,2%) acima do orçamento.
@@ -77,16 +77,11 @@ Cada aba tem um bloco de "Insight + Recomendação" em linguagem de negócio, ge
 
 ### Qualidade de Dados (`app/pages/Qualidade_de_Dados.py`)
 
-Painel de governança que expõe, em tempo real e direto do banco (`core/validacoes.py::relatorio_qualidade_dado`), tudo o que sustenta a confiabilidade dos números do Dashboard:
+Painel de governança que expõe, em tempo real e direto do banco (`core/validacoes.py::relatorio_qualidade_dado`), tudo o que sustenta a confiabilidade dos números do Dashboard. Os 3 números centrais (campos sem preenchimento, conflitos já corrigidos, meses divergentes) aparecem em cards com cor por categoria — neutro, resolvido ou atenção — para não dar o mesmo peso visual a "não é problema" e a "requer decisão". Abaixo, os achados são agrupados em 3 blocos por natureza, cada item já mostrando a contagem no título antes de abrir:
 
-- Volume de registros por tabela;
-- Campos sem preenchimento (nulos) e por que cada caso é esperado ou não;
-- Grafias diferentes do mesmo status, antes/depois da normalização;
-- Conflitos entre `status_venda` e `data_distrato` (já corrigidos pela regra de precedência);
-- Divergências financeiras acima do tolerado;
-- Integridade referencial entre as 7 tabelas (registros "órfãos");
-- Por que o critério de duplicidade de clientes não encontra falsos positivos, com a quantificação de quanto um critério ingênuo distorceria o ticket médio;
-- Consistência do percentual de conclusão das obras (faixa 0–100%).
+- **✅ Verificado, sem problema encontrado** — integridade referencial entre as 7 tabelas; por que o critério de duplicidade de clientes não encontra falsos positivos (com a quantificação de quanto um critério ingênuo distorceria o ticket médio); consistência do percentual de conclusão das obras (faixa 0–100%); campos sem preenchimento (nulos estruturais/esperados).
+- **🔧 Corrigido automaticamente pelo sistema** — grafias diferentes do mesmo status, antes/depois da normalização; conflitos entre `status_venda` e `data_distrato` resolvidos pela regra de precedência.
+- **⚠️ Requer atenção — divergência real** — divergências financeiras acima do tolerado, sem correção automática possível (fica registrado para decisão, não escondido).
 
 Esta é a página que "mostra o trabalho" por trás de cada número do Dashboard — ver também `docs/data_exploration.md`.
 
@@ -94,14 +89,14 @@ Esta é a página que "mostra o trabalho" por trás de cada número do Dashboard
 
 A **camada de escrita** da aplicação — único lugar do sistema que grava em `vendas`/`unidades`/`clientes`. Duas abas:
 
-- **Registrar venda**: lista só unidades com status normalizado `disponivel` (`core/regras_negocio.py::unidades_disponiveis`); permite escolher um cliente já cadastrado ou cadastrar um novo (com `data_cadastro` preenchida automaticamente); valida e-mail e valor da venda antes de submeter. Toda a gravação passa por `registrar_venda`, que roda dentro de uma transação e valida `cliente_id`/`unidade_id` no backend, não só na tela.
+- **Registrar venda**: lista só unidades com status normalizado `disponivel` (`core/regras_negocio.py::unidades_disponiveis`); permite escolher um cliente já cadastrado ou cadastrar um novo (com `data_cadastro` preenchida automaticamente); valida formato de e-mail, unicidade de e-mail (um cliente novo não pode usar um e-mail já cadastrado em outro cliente) e valor da venda antes de submeter. Toda a gravação passa por `registrar_venda`, que roda dentro de uma transação e valida `cliente_id`/`unidade_id`/e-mail no backend, não só na tela.
 - **Registrar distrato**: lista só vendas ativas (`esta_ativa`); ao confirmar, `registrar_distrato` marca a venda como distratada e muda o status da unidade para `distrato` — **não** para `disponivel` (regra 9: liberar a unidade de novo exige ação manual, não é automático).
 
-Erros de regra de negócio (unidade indisponível, cliente inválido, venda já distratada, corrida entre duas transações concorrentes) aparecem como mensagem clara na tela, nunca como stack trace.
+Erros de regra de negócio (unidade indisponível, cliente inválido, e-mail já cadastrado, venda já distratada, corrida entre duas transações concorrentes) aparecem como mensagem clara na tela, nunca como stack trace. Toda venda ou distrato registrado com sucesso mostra uma notificação (`st.toast`, ✅ "Venda realizada com sucesso!" / "Distrato realizado com sucesso!"), além do resumo com os IDs gravados.
 
 ### Assistente (`app/pages/Assistente.py`)
 
-Página dedicada ao assistente de linguagem natural em **text-to-SQL** (`nl_assistant/text_to_sql.py`): o usuário digita uma pergunta em português, o LLM gera um `SELECT` sobre o schema real (priorizando as views normalizadas `vw_vendas`/`vw_unidades`), a consulta é validada por um guardrail (`nl_assistant/guardrails.py`) e executada contra o banco. **SQL gerado e resultado bruto ficam sempre visíveis** abaixo da resposta, para rastreabilidade — nada é respondido sem mostrar de onde veio. Detalhes da abordagem e o roteiro de perguntas testadas estão na seção [Assistente de linguagem natural](#assistente-de-linguagem-natural) abaixo.
+Página dedicada ao assistente de linguagem natural em **text-to-SQL** (`nl_assistant/text_to_sql.py`): o usuário digita uma pergunta em português, o LLM gera um `SELECT` sobre o schema real (priorizando as views normalizadas `vw_vendas`/`vw_unidades`), a consulta é validada por um guardrail (`nl_assistant/guardrails.py`) e executada contra o banco. A resposta em texto vem com a tabela de resultado logo abaixo; a consulta SQL usada e o nome do banco de dados consultado ficam num **log de auditoria** expansível — sempre disponíveis para rastreabilidade, sem poluir a resposta principal com SQL cru. Um botão limpa o histórico de perguntas da sessão. Detalhes da abordagem e o roteiro de perguntas testadas estão na seção [Assistente de linguagem natural](#assistente-de-linguagem-natural) abaixo.
 
 ### Copiloto flutuante (`app/components/assistant_widget.py`)
 
@@ -112,7 +107,7 @@ Presente em todas as páginas logadas (botão flutuante no canto inferior direit
 - **Python 3.12**
 - **Streamlit 1.63** — interface (multi-página, autenticação simples via `st.session_state`)
 - **SQLite** — banco de dados fornecido (`data/cambara_teste_tecnico.db`), acessado via `sqlite3` da stdlib
-- **Groq** (`openai/gpt-oss-20b`) — LLM usado no assistente de linguagem natural (text-to-SQL) e no copiloto flutuante
+- **Groq** — LLM usado no assistente de linguagem natural: `openai/gpt-oss-120b` no text-to-SQL da página Assistente (trocado de `20b` para `120b` em 04/09/2026 por confiabilidade — o 20b esgotava o orçamento de raciocínio em perguntas fora do schema, ver `docs/decisions.md`) e `openai/gpt-oss-20b` no copiloto flutuante (tarefa mais simples, interpreta um resumo já calculado, não gera SQL)
 - **pandas** / **altair** — manipulação tabular e gráficos nas telas analíticas
 - **pytest** — suíte de testes (`tests/`)
 
@@ -247,7 +242,9 @@ Como o banco fornecido **não pode ser alterado** (nenhuma linha de `unidades`/`
 
 ## Assistente de linguagem natural
 
-Abordagem: **text-to-SQL** com um LLM (Groq, `openai/gpt-oss-20b`), restrito a `SELECT` único (`app/nl_assistant/guardrails.py` bloqueia qualquer outra instrução ou múltiplos statements antes de executar). SQL e resultado são sempre expostos na tela — nada é respondido sem mostrar a consulta que gerou a resposta, para rastreabilidade. Essa é a abordagem usada pela página **Assistente**; o copiloto flutuante (descrito em [Páginas da aplicação](#copiloto-flutuante-appcomponentsassistant_widgetpy)) é uma segunda abordagem, mais restrita, sobre um resumo pré-calculado — não gera SQL.
+Abordagem: **text-to-SQL** com um LLM (Groq, `openai/gpt-oss-120b`), restrito a `SELECT` único (`app/nl_assistant/guardrails.py` bloqueia qualquer outra instrução ou múltiplos statements antes de executar). Resultado e resposta ficam na tela principal; SQL e banco de dados consultado ficam num log de auditoria expansível — nada é respondido sem que a consulta que gerou a resposta possa ser conferida. Essa é a abordagem usada pela página **Assistente**; o copiloto flutuante (descrito em [Páginas da aplicação](#copiloto-flutuante-appcomponentsassistant_widgetpy)) é uma segunda abordagem, mais restrita, sobre um resumo pré-calculado — não gera SQL, mas reaproveita esse mesmo text-to-SQL como fallback para perguntas fora do resumo.
+
+Toda coluna de texto livre (ex.: nome de cliente) é comparada de forma insensível a maiúsculas/acentuação (`LIKE`, nunca igualdade exata) — a base original é consistente, mas a camada de escrita permite cadastrar cliente novo sem normalizar a digitação (ex.: "Matheus oliveira"), e uma comparação exata deixaria de encontrar esse registro.
 
 Para reduzir o risco de o modelo reproduzir errado a lógica de normalização de status a cada pergunta, o schema passado ao LLM aponta primeiro para `vw_vendas`/`vw_unidades` (status já normalizado, 2 e 4 categorias respectivamente) em vez das tabelas brutas — o modelo só precisa filtrar `status_venda_normalizado = 'distratada'`, por exemplo, em vez de reconstruir a regra de sinônimos em SQL toda vez.
 
@@ -256,7 +253,7 @@ Roteiro de perguntas testadas (com SQL, resultado e gabarito reais) para validar
 ## Limitações conhecidas
 
 - **Clientes duplicados**: sem CPF/telefone na base, o critério (nome + cidade + data de cadastro idênticos) é deliberadamente conservador para não gerar falso positivo — resultado atual: 0 grupos. Um critério mais agressivo seria probabilístico, não determinístico (ver regra 6).
-- **Assistente de linguagem natural**: a robustez depende do LLM seguir a instrução de usar as views normalizadas; o guardrail garante que a consulta é só leitura, mas não garante que o SQL gerado seja sempre semanticamente ótimo. Testado e confirmado (ver `docs/roteiro_validacao_assistente.md`, seção 5): para uma pergunta fora do schema (ex.: número de funcionários — a base não tem essa tabela), o assistente da página dedicada não avisa que a informação não existe — ele gera uma consulta trivial que retorna 0 e apresenta como resposta real, em vez de dizer explicitamente "essa informação não está disponível" (o widget flutuante, `nl_assistant/copiloto.py`, já tem essa instrução no prompt; a página dedicada, `nl_assistant/text_to_sql.py`, ainda não).
+- **Assistente de linguagem natural**: a robustez depende do LLM seguir a instrução de usar as views normalizadas; o guardrail garante que a consulta é só leitura, mas não garante que o SQL gerado seja sempre semanticamente ótimo. Para uma pergunta fora do schema (ex.: número de funcionários — a base não tem essa tabela), tanto a página dedicada (`nl_assistant/text_to_sql.py`) quanto o copiloto flutuante (`nl_assistant/copiloto.py`) recusam explicitamente com uma explicação, em vez de inventar um número — marcador `SEM_DADOS:` no prompt de ambos, testado e reconfirmado em 04/09/2026 (ver `docs/roteiro_validacao_assistente.md`, seção 5).
 - **Senha de usuário**: hash SHA-256 simples, sem salt (ver regra 8) — simplificação documentada e adequada ao escopo do teste; uma versão de produção exigiria bcrypt/argon2.
 - **Views (`sql/views.sql`)**: aplicadas uma única vez via `scripts/aplicar_views.py`, não recriadas a cada conexão — se o banco for substituído por uma cópia sem as views, rode o script novamente.
 
