@@ -10,6 +10,11 @@ _DB_PATH = os.path.normpath(
 )
 
 
+def caminho_banco() -> str:
+    """Caminho do arquivo de banco em uso (pode vir de DB_PATH, ex.: testes/auditoria)."""
+    return _DB_PATH
+
+
 def get_connection() -> sqlite3.Connection:
     """
     Abre conexão com row_factory=sqlite3.Row.

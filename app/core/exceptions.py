@@ -11,6 +11,11 @@ class ClienteInvalidoError(Exception):
     nem cliente_id nem cliente_novo foram informados."""
 
 
+class EmailJaCadastradoError(Exception):
+    """E-mail informado para o cliente novo já pertence a outro cliente
+    cadastrado — verificado no backend, não só no formulário."""
+
+
 class VendaNaoEncontradaError(Exception):
     """Venda não encontrada no banco."""
 

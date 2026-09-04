@@ -6,6 +6,7 @@ from datetime import date
 from core.db import run_query, transaction
 from core.exceptions import (
     ClienteInvalidoError,
+    EmailJaCadastradoError,
     UnidadeIndisponivelError,
     UnidadeNaoEncontradaError,
     VendaJaDistratadaError,
@@ -100,10 +101,12 @@ def registrar_venda(
     - Valida que a unidade existe (senão UnidadeNaoEncontradaError) e que seu
       status normalizado é "disponivel" (senão UnidadeIndisponivelError).
     - Valida valor_venda > 0 (senão ValueError).
-    - Se cliente_novo vier preenchido ({nome, cidade, uf, perfil, email}), insere em clientes.
-      Senão, valida que cliente_id foi informado e corresponde a um cliente
-      existente (senão ClienteInvalidoError) — o backend não confia que quem
-      chamou esta função já filtrou um cliente válido (ex.: uma tela).
+    - Se cliente_novo vier preenchido ({nome, cidade, uf, perfil, email}), valida
+      que o e-mail (se informado) não pertence a nenhum cliente já cadastrado
+      (senão EmailJaCadastradoError) e insere em clientes. Senão, valida que
+      cliente_id foi informado e corresponde a um cliente existente (senão
+      ClienteInvalidoError) — o backend não confia que quem chamou esta
+      função já filtrou um cliente válido (ex.: uma tela).
     - Insere em vendas.
     - Atualiza unidades.status = "vendida".
     - Retorna {venda_id, unidade_id, cliente_id}.
@@ -125,6 +128,16 @@ def registrar_venda(
 
         # 2. Inserir cliente novo, ou validar que o cliente_id informado existe
         if cliente_novo is not None:
+            email_novo = (cliente_novo.get("email") or "").strip()
+            if email_novo:
+                cliente_com_mesmo_email = cur.execute(
+                    "SELECT id FROM clientes WHERE email = ?", (email_novo,)
+                ).fetchone()
+                if cliente_com_mesmo_email is not None:
+                    raise EmailJaCadastradoError(
+                        f"O e-mail '{email_novo}' já está cadastrado para outro cliente."
+                    )
+
             data_cadastro = cliente_novo.get("data_cadastro", date.today().isoformat())
             cur.execute(
                 "INSERT INTO clientes (nome, cidade, uf, perfil, data_cadastro, email) VALUES (?, ?, ?, ?, ?, ?)",
