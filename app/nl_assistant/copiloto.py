@@ -1,13 +1,22 @@
 import json
 import os
+from collections import Counter
 
 from analytics.clientes_duplicados import calcular as calcular_clientes_duplicados
 from analytics.divergencia_financeira import calcular as calcular_divergencia_financeira
 from analytics.estouro_custo import calcular as calcular_estouro_custo
 from analytics.velocidade_vendas import calcular as calcular_velocidade_vendas
+from core.regras_negocio import unidades_disponiveis
 from core.validacoes import relatorio_qualidade_dado
 
 _GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+
+# Independente do modelo usado por nl_assistant.text_to_sql (que tem sua
+# própria constante _MODELO, hardcoded na chamada da API até a auditoria de
+# 04/09/2026 — ver docs/roteiro_validacao_assistente.md). Este _MODELO aqui só
+# interpreta o resumo JSON já calculado (nunca vê schema/SQL/dado bruto), onde
+# o risco de alucinação de schema não existe — o 20b é suficiente e mais
+# barato/rápido para essa tarefa.
 _MODELO = "openai/gpt-oss-20b"
 
 PERGUNTAS_SUGERIDAS = [
@@ -17,15 +26,33 @@ PERGUNTAS_SUGERIDAS = [
     "Quais são os principais insights?",
 ]
 
-_SYSTEM_PROMPT = """\
+_MARCADOR_CONSULTA_SQL = "CONSULTA_SQL:"
+
+_SYSTEM_PROMPT = f"""\
 Você é o Assistente de Análise de Negócio do painel executivo da Cambará Empreendimentos.
 Seu papel é ajudar a diretoria a interpretar os indicadores já calculados pelo sistema.
 
 Regras importantes:
 - Responda SOMENTE com base nos dados estruturados fornecidos a seguir. Nunca invente ou
   estime números que não estejam presentes nesses dados.
-- Se a pergunta exigir um dado que não está disponível no contexto fornecido, diga
-  claramente que essa informação não está disponível, em vez de supor um valor.
+- Se a pergunta pedir uma contagem, lista, valor específico ou qualquer outro dado bruto
+  que NÃO esteja nos dados estruturados fornecidos, NÃO diga que a informação está
+  indisponível. Em vez disso, responda SOMENTE com a linha (sem mais nada):
+  {_MARCADOR_CONSULTA_SQL} <pergunta reformulada para consulta ao banco de dados>
+- NUNCA misture indicadores de domínios diferentes para responder a uma pergunta
+  sobre outro domínio (ex.: não use "estouro de custo" ou dispersão de
+  "velocidade de vendas" como se fossem evidência de problema de qualidade de
+  dado — são conceitos diferentes, cada um com seu próprio indicador nos dados
+  fornecidos). Se o domínio exato perguntado não estiver nos dados estruturados
+  E não for um dado bruto consultável (ou seja, não se aplica o CONSULTA_SQL
+  acima), diga claramente que não tem esse indicador disponível no momento.
+- NUNCA invente uma causa ou explicação (ex.: "isso indica erro de coleta de
+  dados") que não esteja literalmente presente nos dados estruturados
+  fornecidos. Relate os números; se for interpretar, deixe explícito que é uma
+  leitura executiva sua, não um fato dos dados.
+- Se usar um indicador para responder a um termo ambíguo da pergunta (ex.:
+  responder "desempenho" ou "vendeu mais" usando velocidade de vendas), diga
+  qual indicador usou — não deixe implícito que é a única leitura possível.
 - Seja executivo: direto, conciso, em português, poucos parágrafos curtos ou uma lista curta.
 """
 
@@ -84,6 +111,21 @@ def _resumo_divergencia_financeira() -> dict:
     return resumo
 
 
+def _resumo_disponibilidade_unidades() -> dict:
+    unidades = unidades_disponiveis()
+    if not unidades:
+        return {"disponivel": True, "total_unidades_disponiveis": 0}
+    por_empreendimento = Counter(u["empreendimento_nome"] for u in unidades)
+    return {
+        "disponivel": True,
+        "total_unidades_disponiveis": len(unidades),
+        "top_empreendimentos_com_mais_disponibilidade": [
+            {"empreendimento": nome, "unidades_disponiveis": qtd}
+            for nome, qtd in por_empreendimento.most_common(3)
+        ],
+    }
+
+
 def _resumo_qualidade_dado() -> dict:
     relatorio = relatorio_qualidade_dado()
     return {
@@ -103,14 +145,30 @@ _CONSTRUTORES = {
     "clientes_duplicados": _resumo_clientes_duplicados,
     "divergencia_financeira": _resumo_divergencia_financeira,
     "qualidade_dado": _resumo_qualidade_dado,
+    "disponibilidade_unidades": _resumo_disponibilidade_unidades,
 }
 
-_DOMINIOS_PADRAO = ("velocidade_vendas", "estouro_custo", "clientes_duplicados", "divergencia_financeira")
+_DOMINIOS_PADRAO = (
+    "velocidade_vendas",
+    "estouro_custo",
+    "clientes_duplicados",
+    "divergencia_financeira",
+    "disponibilidade_unidades",
+    "qualidade_dado",
+)
 
 _DOMINIOS_POR_PAGINA = {
     "Dashboard": _DOMINIOS_PADRAO,
     "Qualidade de Dados": ("qualidade_dado",),
-    "Vendas e Distratos": ("velocidade_vendas", "clientes_duplicados"),
+    # qualidade_dado incluído aqui também: achado de auditoria (04/09/2026) — ao
+    # perguntar "existem problemas de qualidade nos dados?" fora da página
+    # Qualidade de Dados, o domínio não estava carregado e o LLM reaproveitava
+    # métricas de outros domínios (estouro de custo, dispersão de velocidade de
+    # vendas) como se fossem evidência de qualidade de dado, inclusive
+    # inventando uma causa ("indica inconsistência na coleta") sem base nos
+    # dados. Carregar qualidade_dado em toda página fecha esse ponto cego sem
+    # depender só da instrução de prompt para não conflacionar domínios.
+    "Vendas e Distratos": ("velocidade_vendas", "clientes_duplicados", "disponibilidade_unidades", "qualidade_dado"),
 }
 
 
@@ -133,14 +191,18 @@ def montar_contexto(pagina_atual: str | None) -> dict:
     return contexto
 
 
-def responder(pergunta: str, pagina_atual: str | None = None, historico: list[dict] | None = None) -> str:
+def responder(pergunta: str, pagina_atual: str | None = None, historico: list[dict] | None = None) -> dict:
     """
-    Responde uma pergunta de análise de negócio interpretando indicadores já calculados
-    pela camada de analytics/core.
+    Responde uma pergunta de análise de negócio.
 
     Fluxo: pergunta -> monta contexto estruturado (analytics/core) -> LLM interpreta o
-    contexto -> resposta em linguagem natural. O LLM nunca recebe SQL nem dados brutos,
-    e nunca executa cálculo de negócio — apenas interpreta o resumo já calculado.
+    contexto. Se o LLM sinalizar que a pergunta exige um dado bruto fora desse contexto
+    (marcador CONSULTA_SQL), a pergunta é roteada para nl_assistant.text_to_sql.perguntar(),
+    que gera e executa uma SQL real (só SELECT) contra o banco — a SQL e o resultado bruto
+    são retornados para exibição, garantindo rastreabilidade também nesse caminho.
+
+    Retorna: {"resposta_texto": str, "sql": str | None, "resultado": list[dict] | None}.
+    sql/resultado só vêm preenchidos quando a resposta veio de uma consulta real ao banco.
 
     Levanta EnvironmentError se a chave da API não estiver configurada.
     """
@@ -175,4 +237,24 @@ def responder(pergunta: str, pagina_atual: str | None = None, historico: list[di
         temperature=0.2,
         max_tokens=700,
     )
-    return completion.choices[0].message.content.strip()
+    resposta = completion.choices[0].message.content.strip()
+
+    if resposta.startswith(_MARCADOR_CONSULTA_SQL):
+        pergunta_reformulada = resposta[len(_MARCADOR_CONSULTA_SQL):].strip() or pergunta
+        from nl_assistant.text_to_sql import perguntar
+
+        try:
+            resultado_sql = perguntar(pergunta_reformulada)
+        except Exception:
+            return {
+                "resposta_texto": "Não foi possível consultar essa informação no banco agora.",
+                "sql": None,
+                "resultado": None,
+            }
+        return {
+            "resposta_texto": resultado_sql["resposta_texto"],
+            "sql": resultado_sql["sql"],
+            "resultado": resultado_sql["resultado"],
+        }
+
+    return {"resposta_texto": resposta, "sql": None, "resultado": None}

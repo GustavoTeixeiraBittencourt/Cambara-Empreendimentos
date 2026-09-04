@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 
 from nl_assistant.copiloto import PERGUNTAS_SUGERIDAS, responder
@@ -122,6 +123,14 @@ def render_assistant(pagina_atual: str | None = None) -> None:
                 for item in historico:
                     with st.chat_message(item["role"]):
                         st.write(item["content"])
+                        if item.get("sql"):
+                            st.caption("SQL gerada")
+                            st.code(item["sql"], language="sql")
+                            if item.get("resultado"):
+                                st.caption("Resultado bruto")
+                                st.dataframe(pd.DataFrame(item["resultado"]), hide_index=True)
+                            else:
+                                st.caption("A consulta não retornou nenhuma linha.")
 
         pergunta = st.chat_input("Pergunte sobre os dados...", key="assistant-chat-input")
         if pergunta:
@@ -136,7 +145,18 @@ def _processar_pergunta(pergunta: str, pagina_atual: str | None, historico: list
         try:
             resposta = responder(pergunta, pagina_atual=pagina_atual, historico=historico_anterior)
         except Exception:
-            resposta = "Não foi possível consultar o assistente neste momento."
+            resposta = {
+                "resposta_texto": "Não foi possível consultar o assistente neste momento.",
+                "sql": None,
+                "resultado": None,
+            }
 
-    historico.append({"role": "assistant", "content": resposta})
+    historico.append(
+        {
+            "role": "assistant",
+            "content": resposta["resposta_texto"],
+            "sql": resposta.get("sql"),
+            "resultado": resposta.get("resultado"),
+        }
+    )
     st.rerun()
