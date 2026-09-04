@@ -178,12 +178,12 @@ def pagina_login():
 
 
 pagina_login_obj = st.Page(pagina_login, title="Login", icon=":material/login:")
-pagina_dashboard = st.Page("pages/1_Dashboard.py", title="Dashboard", icon=":material/bar_chart:")
+pagina_dashboard = st.Page("pages/Dashboard.py", title="Dashboard", icon=":material/bar_chart:")
 pagina_qualidade = st.Page(
-    "pages/2_Qualidade_de_Dados.py", title="Qualidade de Dados", icon=":material/verified:"
+    "pages/Qualidade_de_Dados.py", title="Qualidade de Dados", icon=":material/verified:"
 )
 pagina_vendas = st.Page(
-    "pages/3_Vendas_e_Distratos.py", title="Vendas e Distratos", icon=":material/edit_document:"
+    "pages/Vendas_e_Distratos.py", title="Vendas e Distratos", icon=":material/edit_document:"
 )
 
 if "usuario" in st.session_state:
