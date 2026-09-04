@@ -52,21 +52,23 @@ Este documento registra as decisões formais de negócio tomadas a partir dos ac
 
 ### 3. Fonte de Verdade em Conflito (status_venda × data_distrato)
 
-**Status:** Confirmada
+**Status:** Confirmada (rótulo canônico de saída revisado em 03/09/2026 — ver nota abaixo)
 
-**Problema:** 37 registros em `vendas` têm `data_distrato` preenchida, mas `status_venda` ainda consta como "ativa" (alguma grafia). Os dois campos discordam sobre o mesmo fato.
+**Nota de revisão (03/09/2026):** o rótulo de saída da categoria de distrato em `vendas.status_venda` mudou de `"distrato"` para `"distratada"`. Motivo: `"ativa"` e `"distrato"` misturavam classes gramaticais (adjetivo vs. substantivo) na mesma coluna — `"ativa"`/`"distratada"` são ambos adjetivos, leitura mais natural em tela e nas respostas do assistente de linguagem natural. Não muda a regra de reconhecimento em si (mesma fórmula, mesmo conjunto de grafias reconhecidas `{"distrato", "distratada", "cancelado"}`) — muda só o valor final exibido/gravado. `esta_distratada()`/`esta_ativa()` continuam retornando booleano e não mudaram; a função nova `status_venda_normalizado()` (`core/regras_negocio.py`) é quem expõe o rótulo canônico como texto. Também reflete na regra 9 (valor gravado por `registrar_distrato()`) e na view `vw_vendas.status_venda_normalizado` (`sql/views.sql`). `unidades.status` (regra 2) **não** foi alterada — continua `"distrato"`, coluna e decisão de nomenclatura independentes.
 
-**Regra:** `data_distrato` tem precedência sobre `status_venda`. Se `data_distrato` estiver preenchida, a venda é tratada como distratada, independentemente do texto em `status_venda`. Justificativa: a data é um evento factual (aconteceu ou não), enquanto o texto do status está sujeito a erro de digitação/atualização manual — já demonstrado pela inconsistência de grafia da regra 1.
+**Problema:** 37 registros em `vendas` têm `data_distrato` preenchida, mas `status_venda` ainda consta como "ativa" (alguma grafia). Os dois campos discordam sobre o mesmo fato. Além disso — achado de 03/09, ao formalizar o contrato de implementação — `vendas.status_venda` tem uma 4ª grafia além das já mapeadas pela regra 1: `"Distratada"`. A normalização de acento/caixa da regra 1 sozinha não resolve esse caso: `normalizar_status("Distratada")` vira `"distratada"`, uma string diferente de `"distrato"`, então uma comparação direta (`== "distrato"`) deixaria passar despercebido um registro que na prática já está distratado.
 
-**Fórmula:** `venda_distratada = (status_venda_normalizado == "distrato") OR (data_distrato IS NOT NULL)`
+**Regra:** `data_distrato` tem precedência sobre `status_venda`. Se `data_distrato` estiver preenchida, a venda é tratada como distratada, independentemente do texto em `status_venda`. Justificativa: a data é um evento factual (aconteceu ou não), enquanto o texto do status está sujeito a erro de digitação/atualização manual — já demonstrado pela inconsistência de grafia da regra 1. Adicionalmente, após a normalização de grafia (regra 1), qualquer valor de `status_venda` pertencente ao conjunto `{"distrato", "distratada"}` é tratado como a mesma categoria de negócio — mesmo raciocínio de unificação de categoria já aplicado a `unidades.status` na regra 2, agora estendido explicitamente a `vendas.status_venda`.
 
-**Exemplo:** uma venda com `status_venda = "Ativa"` e `data_distrato = "2024-03-15"` é tratada como distratada, mesmo o texto dizendo o contrário.
+**Fórmula:** `status_venda_categoria = "distratada" SE normalizar_status(status_venda) IN {"distrato", "distratada"} SENÃO normalizar_status(status_venda)` e então `venda_distratada = (status_venda_categoria == "distratada") OR (data_distrato IS NOT NULL)` (rótulo revisado em 03/09/2026 — era `"distrato"`, ver nota de revisão acima)
+
+**Exemplo:** uma venda com `status_venda = "Ativa"` e `data_distrato = "2024-03-15"` é tratada como distratada, mesmo o texto dizendo o contrário. Uma venda com `status_venda = "Distratada"` e `data_distrato = NULL` também é tratada como distratada — sem o mapeamento de categoria, essa venda seria contada erroneamente como ativa.
 
 **Impacto:** define diretamente a regra 4 (venda ativa) e a Pergunta de Negócio 1 (vendas líquidas).
 
-**Implementação:** `core/regras_negocio.py`, função `esta_distratada()`, usada por toda função que precisar classificar uma venda.
+**Implementação:** `core/regras_negocio.py`, função `esta_distratada()`, usada por toda função que precisar classificar uma venda. Documentado também em `docs/interface_contrato.md` como responsabilidade explícita dessa função.
 
-**Validação:** `select count(*) from vendas where data_distrato is not null and status_venda_normalizado != 'distrato'` retorna 37 — reportado à parte no painel de qualidade de dado como "37 casos corrigidos pela regra de precedência", evidenciando que a regra foi de fato aplicada, não apenas ignorada.
+**Validação:** `select count(*) from vendas where data_distrato is not null and status_venda_normalizado != 'distrato'` retorna 37 — reportado à parte no painel de qualidade de dado como "37 casos corrigidos pela regra de precedência", evidenciando que a regra foi de fato aplicada, não apenas ignorada. Adicionalmente, `select distinct status_venda from vendas` confirma 6 grafias (`Ativa, ativa, ATIVA, Distrato, distrato, Distratada`) que, após regra 1 + mapeamento de categoria, colapsam para exatamente 2 categorias de negócio (`ativa`, `distratada`) — conferido em banco em 03/09/2026 (rótulo `distratada` revisado no mesmo dia, ver nota de revisão acima; `app/core/validacoes.py` também corrigido no mesmo commit — antes calculava as categorias só com `normalizar_status()`, sem o mapeamento de categoria, e mostrava 3 valores em vez de 2).
 
 ---
 
@@ -188,7 +190,7 @@ inconsistente = divergencia > 1.00
 
 **Impacto:**
 - Fluxo "Registrar venda": unidades em `distrato` não entram na lista de unidades vendáveis até liberação manual.
-- Fluxo "Registrar distrato": a transação grava `status_venda = 'distrato'` em `vendas` (com `data_distrato`) e `status = 'distrato'` em `unidades` — não `'disponível'` — na mesma transação atômica (BEGIN/COMMIT único).
+- Fluxo "Registrar distrato": a transação grava `status_venda = 'distratada'` em `vendas` (com `data_distrato`; rótulo revisado em 03/09/2026, era `'distrato'` — ver regra 3) e `status = 'distrato'` em `unidades` — não `'disponível'` — na mesma transação atômica (BEGIN/COMMIT único).
 - Pergunta de Negócio 1 (velocidade de vendas): unidades em `distrato` não contam como disponíveis no momento da consulta.
 
 **Implementação:** dentro da transação de `core/regras_negocio.py` que processa o distrato.
