@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 
+from format_br import column_config_centralizado, formatar_dataframe_heuristico
 from nl_assistant.copiloto import PERGUNTAS_SUGERIDAS, responder
 
 _ASSISTANT_CSS = """
@@ -128,7 +129,12 @@ def render_assistant(pagina_atual: str | None = None) -> None:
                             st.code(item["sql"], language="sql")
                             if item.get("resultado"):
                                 st.caption("Resultado bruto")
-                                st.dataframe(pd.DataFrame(item["resultado"]), hide_index=True)
+                                df_resultado = formatar_dataframe_heuristico(pd.DataFrame(item["resultado"]))
+                                st.dataframe(
+                                    df_resultado,
+                                    column_config=column_config_centralizado(df_resultado),
+                                    hide_index=True,
+                                )
                             else:
                                 st.caption("A consulta não retornou nenhuma linha.")
 
