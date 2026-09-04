@@ -54,7 +54,7 @@ Outras perguntas boas para este tipo de checagem cruzada (sem gabarito pré-test
 - "Quais os 3 empreendimentos com pior velocidade de vendas?" → confira contra o Dashboard, aba Velocidade de vendas.
 - "Quantos meses tiveram divergência financeira acima de R$ 1,00?" → deve responder 63, e por empreendimento deve bater com a aba Divergência financeira.
 
-## 3. Perguntas sensíveis a grafia / regra de negócio
+## 3. Perguntas sensíveis a grafia / regra de negócio *
 
 Testam se o assistente de fato aplica a normalização de status (regras 1–3 de `docs/business_rule.md`) em vez de comparar a coluna bruta.
 
