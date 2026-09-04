@@ -6,7 +6,7 @@ from analytics.velocidade_vendas import calcular as calcular_velocidade_vendas
 from analytics.estouro_custo import calcular as calcular_estouro_custo
 from analytics.clientes_duplicados import calcular as calcular_clientes_duplicados
 from analytics.divergencia_financeira import calcular as calcular_divergencia_financeira
-from format_br import formatar_colunas_br, formatar_moeda_br, formatar_percentual_br
+from format_br import column_config_centralizado, formatar_colunas_br, formatar_moeda_br, formatar_percentual_br
 
 st.set_page_config(page_title="Dashboard — Cambará", page_icon="📊", layout="wide")
 
@@ -56,13 +56,28 @@ COLUNAS_VELOCIDADE = {
 
 
 def _config_para(df: pd.DataFrame, colunas: dict) -> dict:
-    return {chave: valor for chave, valor in colunas.items() if chave in df.columns}
+    """Column_config para df: usa os rótulos definidos em `colunas` quando
+    existem, e centraliza todas as colunas (mesmo as que não têm rótulo
+    customizado nesta tabela) — número colado na borda direita da célula
+    é menos legível que centralizado."""
+    return column_config_centralizado(df, colunas)
 
 
 def grafico_barras(
     df: pd.DataFrame, coluna_categoria: str, coluna_valor: str, rotulo_eixo_y: str, rotulo_tooltip: str
 ) -> alt.Chart:
-    """Gráfico de barras com tooltip mostrando o valor já formatado (ex.: 'Velocidade de vendas: 50,3%')."""
+    """
+    Gráfico de barras com tooltip mostrando o valor já formatado (ex.: 'Velocidade de vendas: 50,3%').
+
+    Ponto único de configuração visual para todo gráfico de barras do app —
+    eixos/bordas/grade usam cores explícitas da paleta já definida em
+    .streamlit/config.toml (grayColor #766B5E para eixo/borda, tom claro da
+    paleta categórica #B89A72 para a grade), em vez do tema padrão do
+    Streamlit (contraste baixo demais contra o fundo creme do app — a borda
+    direita da área de plotagem praticamente some numa projeção). Qualquer
+    outro gráfico de barras futuro deve reaproveitar esta função, não copiar
+    a configuração de cor inline.
+    """
     df_grafico = df.copy()
     df_grafico["_tooltip"] = df_grafico[coluna_valor].apply(formatar_percentual_br)
     return (
@@ -77,6 +92,8 @@ def grafico_barras(
             ],
         )
         .properties(width=800, height=320)
+        .configure_view(stroke="#766B5E", strokeWidth=1)
+        .configure_axis(domainColor="#766B5E", tickColor="#766B5E", gridColor="#B89A72")
     )
 
 
@@ -109,7 +126,8 @@ with aba1:
                             "velocidade_pct",
                             "Velocidade de vendas (%)",
                             "Velocidade de vendas",
-                        )
+                        ),
+                        theme=None,
                     )
 
             st.space("small")
@@ -177,7 +195,8 @@ with aba2:
                             "estouro_pct",
                             "Estouro de custo (%)",
                             "Estouro de custo",
-                        )
+                        ),
+                        theme=None,
                     )
 
             st.space("small")
@@ -237,7 +256,11 @@ with aba3:
         else:
             with st.container(border=True, key="exec-card-table-duplicados"):
                 st.markdown(f"**{len(df_duplicados)} registro(s) de possível duplicidade encontrados**")
-                st.dataframe(df_duplicados, hide_index=True)
+                st.dataframe(
+                    df_duplicados,
+                    column_config=column_config_centralizado(df_duplicados),
+                    hide_index=True,
+                )
 
             insight(
                 f"{len(df_duplicados)} registro(s) de cliente atendem ao critério rigoroso de "

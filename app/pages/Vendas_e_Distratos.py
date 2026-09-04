@@ -7,6 +7,7 @@ import streamlit as st
 from core.db import run_query
 from core.exceptions import (
     ClienteInvalidoError,
+    EmailJaCadastradoError,
     UnidadeIndisponivelError,
     UnidadeNaoEncontradaError,
     VendaJaDistratadaError,
@@ -59,6 +60,16 @@ st.html(
         <p>Registre novas vendas e formalize distratos diretamente sobre a base de dados.</p>
     </div>"""
 )
+
+# Notificação de sucesso: guardada em session_state antes do st.rerun() e
+# exibida logo no início do rerun seguinte. Mostrar st.toast()/st.success()
+# e chamar st.rerun() na mesma execução não funciona — a página reinicia
+# antes de o usuário conseguir ver a mensagem.
+if "_flash" in st.session_state:
+    flash = st.session_state.pop("_flash")
+    st.toast(flash["mensagem"], icon=flash.get("icone", "✅"))
+    if flash.get("detalhe"):
+        st.success(flash["detalhe"])
 
 aba_venda, aba_distrato = st.tabs([":material/sell: Registrar venda", ":material/assignment_return: Registrar distrato"])
 
@@ -129,6 +140,9 @@ with aba_venda:
 
         if st.button("Registrar venda", type="primary", key="venda_submit"):
             if tipo_cliente == "Novo cliente":
+                nome_novo = nome_novo.strip()
+                cidade_novo = cidade_novo.strip()
+                email_novo = email_novo.strip()
                 if not nome_novo or not cidade_novo:
                     st.error("Preencha nome e cidade do novo cliente.")
                     st.stop()
@@ -169,6 +183,8 @@ with aba_venda:
                     "O cliente selecionado não foi encontrado na base. Atualize a lista de clientes "
                     "e tente novamente, ou cadastre um novo cliente."
                 )
+            except EmailJaCadastradoError:
+                st.error("Email já cadastrado no sistema.")
             except ValueError as e:
                 st.error(f"Dados da venda inválidos: {e}")
             except sqlite3.OperationalError:
@@ -181,10 +197,14 @@ with aba_venda:
                 with st.expander("Detalhes técnicos"):
                     st.caption(str(e))
             else:
-                st.success(
-                    f"Venda registrada com sucesso! (venda #{resultado['venda_id']}, "
-                    f"unidade #{resultado['unidade_id']}, cliente #{resultado['cliente_id']})"
-                )
+                st.session_state["_flash"] = {
+                    "mensagem": "Venda realizada com sucesso!",
+                    "icone": "✅",
+                    "detalhe": (
+                        f"Venda registrada com sucesso! (venda #{resultado['venda_id']}, "
+                        f"unidade #{resultado['unidade_id']}, cliente #{resultado['cliente_id']})"
+                    ),
+                }
                 st.rerun()
 
 # ---------------------------------------------------------------------------
@@ -245,9 +265,13 @@ with aba_distrato:
                 with st.expander("Detalhes técnicos"):
                     st.caption(str(e))
             else:
-                st.success(
-                    f"Distrato registrado com sucesso! A unidade #{resultado['unidade_id']} passou para o "
-                    f"status \"{resultado['novo_status_unidade']}\" e precisa de liberação manual para "
-                    "voltar a ficar disponível para venda."
-                )
+                st.session_state["_flash"] = {
+                    "mensagem": "Distrato realizado com sucesso!",
+                    "icone": "✅",
+                    "detalhe": (
+                        f"Distrato registrado com sucesso! A unidade #{resultado['unidade_id']} passou para o "
+                        f"status \"{resultado['novo_status_unidade']}\" e precisa de liberação manual para "
+                        "voltar a ficar disponível para venda."
+                    ),
+                }
                 st.rerun()
