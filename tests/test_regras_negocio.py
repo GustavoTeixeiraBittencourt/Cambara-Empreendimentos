@@ -6,6 +6,7 @@ import pytest
 from core.db import run_query, transaction
 from core.exceptions import (
     ClienteInvalidoError,
+    EmailJaCadastradoError,
     UnidadeIndisponivelError,
     UnidadeNaoEncontradaError,
     VendaJaDistratadaError,
@@ -312,6 +313,67 @@ def test_registrar_venda_valor_invalido(unidade_disponivel_id, cliente_existente
         "SELECT status FROM unidades WHERE id=?", (unidade_disponivel_id,)
     )[0]["status"]
     assert normalizar_status(status) == "disponivel"
+
+
+def test_registrar_venda_email_ja_cadastrado(unidade_disponivel_id):
+    """E-mail de cliente novo que já pertence a outro cliente cadastrado deve
+    ser recusado (EmailJaCadastradoError) — nem a venda nem o cliente
+    duplicado podem ser gravados."""
+    email_existente = run_query(
+        "SELECT email FROM clientes WHERE email IS NOT NULL AND email != '' LIMIT 1"
+    )[0]["email"]
+    total_clientes_antes = run_query("SELECT COUNT(*) AS n FROM clientes")[0]["n"]
+    total_vendas_antes = run_query("SELECT COUNT(*) AS n FROM vendas")[0]["n"]
+
+    cliente_novo = {
+        "nome": "Cliente Email Duplicado Teste",
+        "cidade": "Curitiba",
+        "uf": "PR",
+        "perfil": "Investidor",
+        "email": email_existente,
+    }
+    with pytest.raises(EmailJaCadastradoError):
+        registrar_venda(
+            unidade_id=unidade_disponivel_id,
+            cliente_id=None,
+            cliente_novo=cliente_novo,
+            data_venda="2026-09-03",
+            valor_venda=1.0,
+            forma_pagamento="Financiamento",
+        )
+
+    assert run_query("SELECT COUNT(*) AS n FROM clientes")[0]["n"] == total_clientes_antes
+    assert run_query("SELECT COUNT(*) AS n FROM vendas")[0]["n"] == total_vendas_antes
+    status = run_query("SELECT status FROM unidades WHERE id=?", (unidade_disponivel_id,))[0]["status"]
+    assert normalizar_status(status) == "disponivel"
+
+
+def test_registrar_venda_email_vazio_nao_conflita(unidade_disponivel_id):
+    """E-mail em branco no cliente novo não deve disparar
+    EmailJaCadastradoError (campo é opcional na tela)."""
+    cliente_novo = {
+        "nome": "Cliente Sem Email Teste",
+        "cidade": "Curitiba",
+        "uf": "PR",
+        "perfil": "Investidor",
+        "email": "",
+    }
+    resultado = registrar_venda(
+        unidade_id=unidade_disponivel_id,
+        cliente_id=None,
+        cliente_novo=cliente_novo,
+        data_venda="2026-09-03",
+        valor_venda=300_000.0,
+        forma_pagamento="À vista",
+    )
+    try:
+        cliente = run_query("SELECT * FROM clientes WHERE id=?", (resultado["cliente_id"],))
+        assert cliente, "Cliente sem e-mail deve ter sido inserido normalmente"
+    finally:
+        with transaction() as cur:
+            cur.execute("DELETE FROM vendas WHERE id=?", (resultado["venda_id"],))
+            cur.execute("DELETE FROM clientes WHERE id=?", (resultado["cliente_id"],))
+            cur.execute("UPDATE unidades SET status='disponivel' WHERE id=?", (unidade_disponivel_id,))
 
 
 def test_registrar_venda_cliente_novo(unidade_disponivel_id):
