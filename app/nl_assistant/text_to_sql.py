@@ -2,42 +2,8 @@ import os
 import sqlite3
 
 from core.db import run_query
-from format_br import formatar_moeda_br, formatar_numero_br, formatar_percentual_br
+from format_br import formatar_valor_heuristico as _formatar_valor
 from nl_assistant.guardrails import validar_apenas_select, validar_tabelas
-
-_PALAVRAS_MONETARIAS = (
-    "valor", "receita", "custo", "despesa", "resultado", "ticket", "lucro",
-    "faturamento", "divergencia", "orcado", "realizado", "_rat", "vgv", "estouro",
-)
-_PALAVRAS_PERCENTUAL = ("pct", "percentual")
-
-
-def _formatar_valor(coluna: str, valor) -> str:
-    """
-    Formata um valor vindo direto do banco no padrão numérico brasileiro
-    (milhar com ponto, decimal com vírgula — mesmas funções de app/format_br.py
-    já usadas no Dashboard), para a resposta do assistente não exibir float cru
-    tipo "2207026.8389491243". Puramente de exibição: não altera o valor em
-    `resultado` (mantido cru, para rastreabilidade/inspeção do SQL executado).
-
-    A classificação monetária/percentual/genérica é heurística, por nome de
-    coluna — o alias vem do SQL gerado pelo modelo, não de um schema fixo,
-    então não há como saber com certeza a unidade. Na dúvida, cai no formato
-    numérico genérico (nunca falha, só fica menos específico).
-    """
-    if valor is None or isinstance(valor, bool):
-        return str(valor)
-    if not isinstance(valor, (int, float)):
-        return str(valor)
-
-    coluna_lower = coluna.lower()
-    if any(p in coluna_lower for p in _PALAVRAS_MONETARIAS):
-        return formatar_moeda_br(valor, 2)
-    if any(p in coluna_lower for p in _PALAVRAS_PERCENTUAL):
-        return formatar_percentual_br(valor, 1)
-    if isinstance(valor, int):
-        return formatar_numero_br(valor, 0)
-    return formatar_numero_br(valor, 2)
 
 _GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 
@@ -89,6 +55,14 @@ Regras de negócio importantes:
   acima. NÃO use unidades.status = 'vendida' como numerador: o status da
   unidade e a existência de uma venda ativa podem divergir; a definição de
   negócio é sempre pela tabela/view de vendas.
+- clientes.nome, clientes.cidade e qualquer outra coluna de texto livre podem
+  ter variação de maiúscula/minúscula ou espaço nas pontas — a base original
+  é consistente, mas a tela "Vendas e Distratos" permite cadastrar cliente
+  novo sem normalizar a digitação (ex.: "Matheus oliveira" em vez de "Matheus
+  Oliveira"). Ao filtrar por um nome ou texto livre informado na pergunta,
+  NUNCA use igualdade exata (=) sensível a maiúsculas — use LIKE '%valor%'
+  (case-insensitive por padrão no SQLite para texto ASCII) para não deixar de
+  encontrar um cliente só por causa da caixa ou de um espaço extra.
 """
 
 _PROMPT_TEMPLATE = """\
