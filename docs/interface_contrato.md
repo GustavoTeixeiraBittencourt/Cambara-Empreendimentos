@@ -34,6 +34,7 @@ usuarios(id, nome, email, papel, senha_hash)                                    
 ## `core/db.py`
 
 - `get_connection() -> sqlite3.Connection` — abre conexão com `row_factory=sqlite3.Row`, caminho do banco vindo de config/env, não hardcoded espalhado pelo código. **Revisado em 04/09/2026:** executa `PRAGMA foreign_keys = ON` em toda conexão — o SQLite não aplica as cláusulas `REFERENCES` do schema sem esse pragma (por conexão), então antes desta correção um `cliente_id`/`unidade_id` inexistente era aceito silenciosamente em qualquer `INSERT`. É defesa em profundidade, além da validação explícita já feita em `registrar_venda`.
+- `caminho_banco() -> str` — **novo em 04/09/2026** — expõe o caminho do arquivo de banco em uso (o mesmo valor interno usado por `get_connection()`, incluindo quando sobrescrito por `DB_PATH`). Usado pela página Assistente para mostrar o nome do banco consultado no log de auditoria de cada resposta.
 - `run_query(sql: str, params: tuple = ()) -> list[dict]` — só leitura, usado por analytics e pelo assistente de NL.
 - `transaction() -> contextmanager` — abre `BEGIN`, expõe um cursor, faz `COMMIT` no sucesso e `ROLLBACK` em qualquer exceção. É isso que garante atomicidade em `registrar_venda`/`registrar_distrato` (alterar `vendas` E `unidades` juntas, ou nenhuma).
 

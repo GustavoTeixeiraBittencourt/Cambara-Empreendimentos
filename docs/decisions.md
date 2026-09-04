@@ -1,5 +1,15 @@
 # Log de Decisões
 
+### 04/09/2026 (5) — Dois bugs reportados em uso real: busca por nome no assistente e chave da API "travada"
+
+**Contexto:** dois problemas encontrados pelo candidato usando o app de verdade (não em revisão de código), depois de cadastrar um cliente novo pela tela.
+
+**1. Assistente não encontrava um cliente que existia.** Reportado: após registrar uma venda para "Matheus Oliveira", perguntar ao assistente "mostre as informações do Matheus Oliveira" respondia que não sabia — mas "quem fez a última compra" retornava o nome corretamente. Causa raiz: o cliente foi salvo como `'Matheus oliveira'` (a tela não normaliza a digitação), e o SQL gerado pelo LLM comparava com igualdade exata (`WHERE nome = 'Matheus Oliveira'`), sensível a maiúsculas no SQLite — não batia. A segunda pergunta não filtra por nome, só lê o valor bruto, por isso funcionava. **Correção:** instrução nova no prompt de `nl_assistant/text_to_sql.py` — nunca comparar texto livre com igualdade exata, sempre `LIKE '%valor%'` (case-insensitive no SQLite). Testado ao vivo com o cenário reproduzido: a mesma pergunta passou a encontrar o registro. Também adicionado `.strip()` em nome/cidade/e-mail do cliente novo em `Vendas_e_Distratos.py`, para não deixar espaço em branco nas pontas causar o mesmo tipo de problema.
+
+**2. `GROQ_API_KEY não configurada` mesmo com o `.env` preenchido.** Duas causas empilhadas: (a) `text_to_sql.py`/`copiloto.py` liam a variável **uma única vez**, numa constante de módulo — se o processo do Streamlit já tinha subido com o `.env` vazio (estado do início do projeto), o valor ficava travado em vazio pelo resto da vida do processo, mesmo depois de o `.env` ser corrigido; (b) mesmo lendo a variável a cada chamada, `load_dotenv()` por padrão **nunca sobrescreve** uma variável já presente em `os.environ` — inclusive uma que ela mesma setou como vazia antes. **Correção:** a leitura da chave passou para dentro de cada função (não mais constante de módulo); `load_dotenv(..., override=True)` em `app/main.py`, para o `.env` sempre vencer. Testado ao vivo reproduzindo o cenário exato (variável travada em vazio + chamada real à API): a resposta voltou correta sem reiniciar o processo.
+
+---
+
 ### 04/09/2026 (4) — Refinamento final da camada de escrita: notificação de sucesso e e-mail duplicado
 
 **Contexto:** ajustes pedidos diretamente para a tela de Vendas e Distratos, o componente de maior peso da avaliação.

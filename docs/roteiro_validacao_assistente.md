@@ -1,6 +1,6 @@
 # Roteiro de Validação do Assistente de Linguagem Natural
 
-Este roteiro existe para você mesmo comprovar, na tela **Assistente** (`app/pages/4_Assistente.py`), que as respostas do assistente vêm dos dados reais — não são invenção do modelo. Todas as perguntas de controle abaixo **já foram testadas** nesta sessão, diretamente contra `nl_assistant/text_to_sql.py` e o banco real (`data/cambara_teste_tecnico.db`); o SQL, o resultado e o veredito ("bate"/"não bate") registrados aqui são os que realmente vieram do assistente, não uma previsão.
+Este roteiro existe para você mesmo comprovar, na tela **Assistente** (`app/pages/Assistente.py`), que as respostas do assistente vêm dos dados reais — não são invenção do modelo. Todas as perguntas de controle abaixo **já foram testadas** nesta sessão, diretamente contra `nl_assistant/text_to_sql.py` e o banco real (`data/cambara_teste_tecnico.db`); o SQL, o resultado e o veredito ("bate"/"não bate") registrados aqui são os que realmente vieram do assistente, não uma previsão.
 
 **Como usar:** abra a tela Assistente, cole a pergunta, e confira três coisas em cada resposta:
 1. O **SQL gerado** aparece abaixo da resposta (se não aparecer, algo está errado — a rastreabilidade é obrigatória).
