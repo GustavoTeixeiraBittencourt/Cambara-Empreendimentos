@@ -9,8 +9,6 @@ from analytics.velocidade_vendas import calcular as calcular_velocidade_vendas
 from core.regras_negocio import unidades_disponiveis
 from core.validacoes import relatorio_qualidade_dado
 
-_GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-
 # Independente do modelo usado por nl_assistant.text_to_sql (que tem sua
 # própria constante _MODELO, hardcoded na chamada da API até a auditoria de
 # 04/09/2026 — ver docs/roteiro_validacao_assistente.md). Este _MODELO aqui só
@@ -206,7 +204,10 @@ def responder(pergunta: str, pagina_atual: str | None = None, historico: list[di
 
     Levanta EnvironmentError se a chave da API não estiver configurada.
     """
-    if not _GROQ_API_KEY:
+    # Lida a cada chamada, não numa constante de módulo — ver nota equivalente
+    # em nl_assistant/text_to_sql.py::perguntar().
+    groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not groq_api_key:
         raise EnvironmentError(
             "GROQ_API_KEY não configurada. Defina a variável no arquivo .env para usar o assistente."
         )
@@ -230,7 +231,7 @@ def responder(pergunta: str, pagina_atual: str | None = None, historico: list[di
         mensagens.append({"role": item["role"], "content": item["content"]})
     mensagens.append({"role": "user", "content": pergunta})
 
-    client = Groq(api_key=_GROQ_API_KEY)
+    client = Groq(api_key=groq_api_key)
     completion = client.chat.completions.create(
         model=_MODELO,
         messages=mensagens,

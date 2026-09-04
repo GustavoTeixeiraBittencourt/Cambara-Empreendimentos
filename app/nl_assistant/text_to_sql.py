@@ -5,8 +5,6 @@ from core.db import run_query
 from format_br import formatar_valor_heuristico as _formatar_valor
 from nl_assistant.guardrails import validar_apenas_select, validar_tabelas
 
-_GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-
 # Auditoria de 04/09/2026 (docs/roteiro_validacao_assistente.md): testado 20b vs
 # 120b nesta mesma tarefa (geração de SQL). Em perguntas fora do schema (ex.:
 # "corretor", "leads"), o 20b frequentemente esgotava o orçamento de tokens de
@@ -171,7 +169,15 @@ def perguntar(pergunta: str) -> dict:
     sql e resultado são sempre expostos para rastreabilidade quando uma consulta
     de fato rodou; vêm None quando a pergunta foi recusada (SEM_DADOS ou erro).
     """
-    if not _GROQ_API_KEY:
+    # Lida a cada chamada (não numa constante de módulo): se GROQ_API_KEY
+    # estava vazia quando o processo do Streamlit subiu e foi preenchida
+    # depois no .env, uma constante de módulo ficaria travada em "" pelo
+    # resto da vida do processo — módulo já importado não reexecuta o topo
+    # do arquivo a cada rerun. Lendo aqui, a próxima pergunta já pega o
+    # valor atual de os.environ (atualizado por load_dotenv() em main.py a
+    # cada rerun), sem precisar reiniciar o servidor.
+    groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not groq_api_key:
         raise EnvironmentError(
             "GROQ_API_KEY não configurada. Defina a variável no arquivo .env para usar o assistente."
         )
@@ -181,7 +187,7 @@ def perguntar(pergunta: str) -> dict:
     except ImportError as exc:
         raise ImportError("Instale o pacote 'groq': pip install groq") from exc
 
-    client = Groq(api_key=_GROQ_API_KEY)
+    client = Groq(api_key=groq_api_key)
     prompt = _PROMPT_TEMPLATE.format(schema=_SCHEMA, pergunta=pergunta, marcador_sem_dados=_MARCADOR_SEM_DADOS)
     mensagens = [{"role": "user", "content": prompt}]
 
