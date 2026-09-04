@@ -1,5 +1,29 @@
 # Log de Decisões
 
+### 04/09/2026 (4) — Refinamento final da camada de escrita: notificação de sucesso e e-mail duplicado
+
+**Contexto:** ajustes pedidos diretamente para a tela de Vendas e Distratos, o componente de maior peso da avaliação.
+
+**1. Notificação de sucesso não aparecia de fato.** O código anterior chamava `st.success(...)` imediatamente seguido de `st.rerun()` — o rerun reinicia a página antes de o usuário conseguir ver a mensagem (comportamento conhecido do Streamlit: st.rerun() interrompe a execução do script na hora). **Correção:** a mensagem de sucesso (texto + `st.toast()` com ícone de check) agora é guardada em `st.session_state["_flash"]` antes do `st.rerun()`, e exibida no início do rerun seguinte — mesmo padrão usado por bibliotecas de "flash message" em frameworks web. Aplica-se a registrar venda ("Venda realizada com sucesso!") e registrar distrato ("Distrato realizado com sucesso!").
+
+**2. Nova regra de negócio: e-mail de cliente novo não pode duplicar um já cadastrado.** Antes, `registrar_venda` inseria um cliente novo sem checar se o e-mail já pertencia a outro cliente — o schema não tem `UNIQUE` em `clientes.email`, então duas vendas para "clientes" diferentes com o mesmo e-mail eram aceitas silenciosamente. **Correção:** `registrar_venda` verifica no backend (não só na tela) se o e-mail informado (quando não vazio — o campo é opcional) já existe em `clientes`; se sim, levanta `EmailJaCadastradoError` (nova, `core/exceptions.py`) dentro da mesma transação (rollback automático, nada é gravado). A tela mostra "Email já cadastrado no sistema." Testes novos em `tests/test_regras_negocio.py` cobrem o caso de conflito e o caso de e-mail vazio (que não deve disparar a regra).
+
+---
+
+### 04/09/2026 (3) — Auditoria final de aderência: página Assistente ausente da navegação + docs desatualizadas
+
+**Contexto:** auditoria de conformidade end-to-end contra o briefing original, feita por um segundo agente (Claude, em modo auditor, sem autorização inicial para alterar código). Achado mais crítico: `app/pages/Assistente.py` está implementado, testado e documentado em detalhe no README, mas **nunca esteve registrado na navegação** de `app/main.py` (`st.navigation(paginas)` — a lista `paginas` nunca incluiu essa página, desde o commit que a criou). Com `st.navigation()` chamado com lista explícita, o Streamlit não faz descoberta automática de outros arquivos em `pages/` — a página ficava inacessível pela barra lateral, apesar de o README descrevê-la como a tela dedicada do assistente de linguagem natural. O componente não estava de fato ausente (o copiloto flutuante já cobria a mesma necessidade via fallback para `nl_assistant.text_to_sql.perguntar()`), mas a tela específica documentada não aparecia em nenhum lugar da interface.
+
+**Correção 1 (crítica):** adicionado `pagina_assistente = st.Page("pages/Assistente.py", ...)` e incluído na lista `paginas` em `app/main.py`. Mudança de 2 linhas — a página em si já funcionava isoladamente (confirmado por chamada direta ao módulo antes da correção).
+
+**Correção 2 — README citava o modelo LLM errado (de novo).** Depois do Gap 1 do log de 04/09/2026 (2) ter corrigido o README de `llama3-70b-8192` para `openai/gpt-oss-20b`, o código de `text_to_sql.py` foi trocado para `openai/gpt-oss-120b` no mesmo dia (ver auditoria interna registrada como comentário no próprio arquivo), sem atualizar o README de novo. Corrigido para refletir que a página Assistente usa `120b` e o copiloto usa `20b`.
+
+**Correção 3 — README e `docs/roteiro_validacao_assistente.md` (seção 5) descreviam uma limitação já corrigida.** Ambos afirmavam que a página dedicada não avisava quando uma pergunta estava fora do schema (gerava `SELECT 0` e apresentava como resposta real). Reteste ao vivo em 04/09/2026 (chamada real à API Groq) confirmou que o marcador `SEM_DADOS:` já está implementado em `text_to_sql.py` e funciona — a pergunta de teste ("quantos funcionários a Cambará tem") agora é recusada com explicação, sem número inventado. Documentação atualizada nos dois arquivos para refletir o comportamento atual, mantendo o histórico do problema original.
+
+Nenhum destes itens exigiu mudança de regra de negócio ou de dado — são correções de fiação (navegação) e de defasagem de documentação, encontradas justamente pelo tipo de checagem que só aparece rodando a aplicação de ponta a ponta, não lendo o código isoladamente.
+
+---
+
 ### 04/09/2026 (2) — Conferência do enunciado original: 3 gaps de aderência corrigidos
 
 **Contexto:** releitura do PDF do enunciado ("Teste Analista de Negócio.pdf") ponto a ponto contra o sistema já implementado, para confirmar aderência antes da entrega/reunião. O assistente de linguagem natural foi testado ao vivo com uma pergunta livre fora do roteiro do projeto ("Quais os 3 empreendimentos com maior valor total de vendas ativas?") — respondeu com SQL real sobre `vw_vendas`/`vw_unidades`, resultado bruto e resposta rastreável, confirmando que o requisito "resposta fundamentada nos registros reais, não uma alucinação" está atendido.
