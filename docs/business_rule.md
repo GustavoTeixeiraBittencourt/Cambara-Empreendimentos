@@ -124,9 +124,9 @@ Este documento registra as decisões formais de negócio tomadas a partir dos ac
 
 **Exemplo:** "Débora Rodrigues Nascimento", cadastrada em 28/02/2023, aparece duas vezes — mas em Curitiba/PR e Marituba/PA, cidades diferentes. Sob este critério, **não** é duplicidade.
 
-**Impacto:** Pergunta de Negócio 3 e qualquer métrica de "clientes únicos"/ticket médio por cliente.
+**Impacto:** Pergunta de Negócio 3 e qualquer métrica de "clientes únicos"/ticket médio por cliente. A própria pergunta pede para quantificar essa distorção **se a duplicidade não fosse tratada** com o critério acima — resposta (04/09/2026, conferida em banco): um critério ingênuo de deduplicação que usasse só `nome` (sem `cidade`/`data_cadastro`) fundiria os 234 cadastros dos 115 grupos de nome repetido em 115 "clientes", uma redução indevida de **119 registros** (4,4% dos 2.691 clientes da base) na contagem de clientes únicos. Como ticket médio por cliente = receita total ÷ clientes únicos, esse mesmo denominador artificialmente menor infla o ticket médio aparente — sugerindo que cada cliente gasta mais do que gasta de fato, sem que a receita real tenha mudado.
 
-**Implementação:** `analytics/clientes_duplicados.py`. O README documenta explicitamente a limitação: sem CPF/telefone, deduplicação mais agressiva seria probabilística, não determinística, e este teste optou pelo critério que não gera falso positivo.
+**Implementação:** `analytics/clientes_duplicados.py` — `calcular()` aplica o critério rigoroso (regra em vigor); `resumo_distorcao_potencial()` (nova em 04/09/2026) quantifica a contrafactual do parágrafo acima, consumida por `core/validacoes.py::relatorio_qualidade_dado()` e exibida no painel de Qualidade de Dados. O README documenta explicitamente a limitação: sem CPF/telefone, deduplicação mais agressiva seria probabilística, não determinística, e este teste optou pelo critério que não gera falso positivo.
 
 **Validação:** resultado esperado = 0 grupos nesta base (conferido em banco); a validação real está em mostrar que o critério é reproduzível e defensável, não em "achar" duplicados artificialmente.
 
@@ -150,9 +150,9 @@ inconsistente = divergencia > 1.00
 ```
 
 
-**Impacto:** painel de qualidade de dado financeiro; Pergunta de Negócio 4 (divergência financeira).
+**Impacto:** painel de qualidade de dado financeiro; Pergunta de Negócio 4 (divergência financeira), que pede explicitamente "em quantos meses/empreendimentos isso ocorre" — os 63 registros já respondem "quantos meses" (cada linha de `financeiro_mensal` é um mês de um empreendimento); a métrica `total_empreendimentos_afetados` (18, ver Validação abaixo) responde a metade que faltava, e desde 04/09/2026 aparece como número explícito no painel de Qualidade de Dados (antes só constava aqui, no texto desta regra).
 
-**Implementação:** `analytics/divergencia_financeira.py`.
+**Implementação:** `analytics/divergencia_financeira.py`; `core/validacoes.py::relatorio_qualidade_dado()` (campo `divergencias_financeiras.total_empreendimentos_afetados`, novo em 04/09/2026).
 
 **Validação:** 499 registros com divergência ≤ R$ 1,00 (ruído de ponto flutuante); 63 registros (11,2% da base) acima da tolerância, distribuídos em 18 empreendimentos distintos — cada linha de `financeiro_mensal` já é uma combinação única de empreendimento/mês, então os 63 registros correspondem a 63 combinações mês/empreendimento distintas. Nenhum registro cai entre R$ 1,00 e R$ 282,57 — confirma que o critério é robusto e não sensível ao valor exato do limiar dentro dessa faixa. Todos os números desta seção foram reconferidos diretamente em banco.
 
